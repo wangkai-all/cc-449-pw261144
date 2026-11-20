@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>来源快照服务</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #171e2e; --panel2: #1d2638; --line: #2a3550;
+    --text: #dbe4f5; --muted: #8494b3; --accent: #5b9dff;
+    --ok: #3fb96f; --warn: #e0a93e; --bad: #e05e5e; --info: #8f7ff0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+           background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; }
+  main { padding: 16px 20px; display: grid; gap: 16px;
+         grid-template-columns: minmax(340px, 5fr) minmax(420px, 7fr); align-items: start; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+           padding: 14px 16px; }
+  .panel h2 { font-size: 14px; margin: 0 0 10px; color: var(--muted);
+              text-transform: uppercase; letter-spacing: .06em; }
+  .col { display: grid; gap: 16px; }
+  select, input, textarea, button { font: inherit; color: var(--text);
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 9px; }
+  button { cursor: pointer; background: #24314d; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #0b1020;
+                   font-weight: 600; }
+  button.danger { background: transparent; border-color: var(--bad); color: var(--bad); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  textarea { width: 100%; min-height: 84px; font-family: ui-monospace, Consolas, monospace;
+             font-size: 12.5px; resize: vertical; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line);
+           vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: var(--panel2); }
+  tr.selected td { background: #22304f; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .muted { color: var(--muted); }
+  .badge { display: inline-block; padding: 1px 8px; font-size: 12px;
+           border-radius: 999px; border: 1px solid var(--line); }
+  .b-ok { color: var(--ok); border-color: var(--ok); }
+  .b-parse_error { color: var(--warn); border-color: var(--warn); }
+  .b-corrupt { color: var(--bad); border-color: var(--bad); }
+  .b-added { color: var(--ok); border-color: var(--ok); }
+  .b-removed { color: var(--bad); border-color: var(--bad); }
+  .b-changed { color: var(--warn); border-color: var(--warn); }
+  .b-running { color: var(--accent); border-color: var(--accent); }
+  .b-interrupted { color: var(--warn); border-color: var(--warn); }
+  .b-completed { color: var(--ok); border-color: var(--ok); }
+  .b-failed, .b-pending { color: var(--muted); }
+  .b-audit { color: var(--info); border-color: var(--info); }
+  .b-replay { color: var(--accent); border-color: var(--accent); }
+  pre { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+        padding: 10px; overflow: auto; max-height: 260px; font-size: 12px; margin: 8px 0; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .grow { flex: 1; }
+  #toast { position: fixed; right: 18px; bottom: 18px; max-width: 420px; padding: 10px 14px;
+           border-radius: 8px; background: var(--panel2); border: 1px solid var(--line);
+           display: none; z-index: 9; }
+  #toast.err { border-color: var(--bad); color: var(--bad); }
+  #toast.ok { border-color: var(--ok); color: var(--ok); }
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 4px 10px; font-size: 13px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-all; }
+  .hint { font-size: 12px; color: var(--muted); }
+  .empty { color: var(--muted); padding: 10px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>来源快照服务</h1>
+  <select id="sourceSelect"></select>
+  <input id="newSourceName" placeholder="新来源名称" size="12">
+  <select id="newSourceParser"></select>
+  <button id="btnCreateSource">新建来源</button>
+  <span class="grow"></span>
+  <span id="sourceMeta" class="muted"></span>
+</header>
+
+<main>
+  <div class="col">
+    <section class="panel" id="panelIngest">
+      <h2>写入响应（哈希 + 压缩 + 解析）</h2>
+      <textarea id="payloadInput" placeholder='{"title":"…","price":"¥199.00",…}'></textarea>
+      <div class="row">
+        <button class="primary" id="btnIngest">提交响应</button>
+        <button id="btnSample">填入示例</button>
+        <span id="ingestMsg" class="hint"></span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>快照时间线</h2>
+      <div id="timelineWrap"><div class="empty">请选择来源</div></div>
+    </section>
+
+    <section class="panel">
+      <h2>批量重解析任务（断点续跑）</h2>
+      <div class="row">
+        <label class="hint">解析器 <select id="jobVersion"></select></label>
+        <label class="hint">批大小 <input id="jobBatch" type="number" value="3" min="1" style="width:64px"></label>
+        <label class="hint">N 条后模拟中断 <input id="jobInterrupt" type="number" min="1" placeholder="不中断" style="width:80px"></label>
+        <button id="btnCreateJob">新建并运行</button>
+      </div>
+      <div id="jobsWrap"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="panel" id="panelDetail">
+      <h2>快照详情 / 差异字段</h2>
+      <div id="detailContent"><div class="empty">点击左侧时间线中的快照</div></div>
+    </section>
+
+    <section class="panel">
+      <h2>引用关系（审计 / 重放）</h2>
+      <div id="refsWrap"><div class="empty">选择快照后展示引用</div></div>
+      <div class="row" id="refForm" style="display:none">
+        <select id="refType"><option value="audit">audit</option><option value="replay">replay</option></select>
+        <input id="refKey" placeholder="引用标识，如 AUDIT-2026-041" size="24">
+        <input id="refNote" placeholder="备注" size="14">
+        <button id="btnAddRef">添加引用</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>保留策略与清理候选</h2>
+      <div class="row">
+        <label class="hint">保留上限 <input id="retMax" type="number" min="1" style="width:72px"></label>
+        <label class="hint">策略
+          <select id="retStrategy">
+            <option value="oldest_first">oldest_first</option>
+            <option value="largest_first">largest_first</option>
+          </select></label>
+        <label class="hint"><input id="retProtect" type="checkbox"> 保护坏快照</label>
+        <button id="btnSaveRetention">保存策略</button>
+        <button id="btnPreviewCleanup">预览清理候选</button>
+        <button class="danger" id="btnApplyCleanup">执行清理</button>
+      </div>
+      <div id="cleanupResult"></div>
+    </section>
+
+    <section class="panel">
+      <h2>解析器升级 / 回滚</h2>
+      <div class="row">
+        <span id="parserCurrent" class="mono"></span>
+        <select id="parserTarget"></select>
+        <input id="parserReason" placeholder="原因（可选）" size="18">
+        <button id="btnUpgrade">升级</button>
+        <button class="danger" id="btnRollback">回滚</button>
+      </div>
+      <div id="historyWrap"></div>
+    </section>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { sources: [], sourceId: null, snapshots: [], snapshotId: null, parsers: null };
+
+function toast(msg, ok = true) {
+  const t = $("toast");
+  t.textContent = msg; t.className = ok ? "ok" : "err"; t.style.display = "block";
+  clearTimeout(t._timer); t._timer = setTimeout(() => t.style.display = "none", 3600);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(body.detail || res.statusText);
+  }
+  return res.json();
+}
+const post = (p, body) => api(p, { method: "POST", body: JSON.stringify(body ?? {}) });
+const put = (p, body) => api(p, { method: "PUT", body: JSON.stringify(body ?? {}) });
+const del = (p) => api(p, { method: "DELETE" });
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+const fmtVal = (v) => v === null || v === undefined
+  ? '<span class="muted">∅</span>' : `<span class="mono">${esc(JSON.stringify(v))}</span>`;
+const badge = (txt, cls) => `<span class="badge b-${cls ?? txt}">${esc(txt)}</span>`;
+
+async function run(fn) { try { await fn(); } catch (e) { toast(e.message, false); } }
+
+/* ------------------------------ sources ------------------------------ */
+async function loadSources() {
+  state.parsers = await api("/api/parsers");
+  state.sources = await api("/api/sources");
+  const sel = $("sourceSelect");
+  sel.innerHTML = state.sources.map(s =>
+    `<option value="${s.id}">#${s.id} ${esc(s.name)}（${s.snapshot_count} 快照）</option>`).join("")
+    || '<option value="">（无来源，请新建）</option>';
+  $("newSourceParser").innerHTML = state.parsers.versions
+    .map(v => `<option>${v}</option>`).join("");
+  if (!state.sourceId && state.sources.length) state.sourceId = state.sources[0].id;
+  if (state.sourceId) sel.value = state.sourceId;
+  await refreshSource();
+}
+
+async function refreshSource() {
+  if (!state.sourceId) return;
+  const src = await api(`/api/sources/${state.sourceId}`);
+  $("sourceMeta").textContent =
+    `当前解析器 ${src.parser_version} · 保留上限 ${src.retention_max} · 策略 ${src.retention_strategy}`;
+  $("retMax").value = src.retention_max;
+  $("retStrategy").value = src.retention_strategy;
+  $("retProtect").checked = src.protect_corrupt;
+  $("parserCurrent").textContent = `当前版本：${src.parser_version}`;
+  $("parserTarget").innerHTML = state.parsers.versions
+    .map(v => `<option ${v === src.parser_version ? "selected" : ""}>${v}</option>`).join("");
+  $("jobVersion").innerHTML = state.parsers.versions
+    .map(v => `<option ${v === src.parser_version ? "selected" : ""}>${v}</option>`).join("");
+  await Promise.all([loadTimeline(), loadJobs(), loadHistory()]);
+  $("cleanupResult").innerHTML = "";
+}
+
+/* ------------------------------ ingest ------------------------------- */
+$("btnSample").onclick = () => {
+  $("payloadInput").value = JSON.stringify({
+    title: "  无线 耳机  ", price: "¥199.00",
+    tags: "Audio, electronics ,AUDIO", sku: "a-123", stock: "17",
+  }, null, 2);
+};
+$("btnIngest").onclick = () => run(async () => {
+  const payload = $("payloadInput").value;
+  if (!payload.trim()) return toast("请输入响应原文", false);
+  const snap = await post(`/api/sources/${state.sourceId}/responses`, { payload });
+  $("ingestMsg").textContent = `已保存快照 #${snap.seq}（${snap.status}）`;
+  await Promise.all([loadTimeline(), loadSources()]);
+  state.snapshotId = snap.id;
+  await loadDetail();
+});
+
+/* ----------------------------- timeline ------------------------------ */
+async function loadTimeline() {
+  state.snapshots = await api(`/api/sources/${state.sourceId}/snapshots`);
+  const wrap = $("timelineWrap");
+  if (!state.snapshots.length) { wrap.innerHTML = '<div class="empty">暂无快照</div>'; return; }
+  wrap.innerHTML = `<table><thead><tr>
+    <th>seq</th><th>时间</th><th>哈希</th><th>解析器</th><th>状态</th><th>引用</th><th>大小</th>
+    </tr></thead><tbody>${state.snapshots.map(s => `
+    <tr class="clickable ${s.id === state.snapshotId ? "selected" : ""}" data-id="${s.id}">
+      <td class="mono">#${s.seq}</td>
+      <td class="mono">${esc(s.created_at.slice(5, 19).replace("T", " "))}</td>
+      <td class="mono" title="${esc(s.content_hash)}">${esc(s.content_hash_short)}</td>
+      <td>${esc(s.parser_version)}</td>
+      <td>${badge(s.status)}</td>
+      <td>${s.active_refs ? `📌 ${s.active_refs}` : ""}</td>
+      <td class="mono muted">${s.raw_size}→${s.compressed_size}B</td>
+    </tr>`).join("")}</tbody></table>`;
+  wrap.querySelectorAll("tr.clickable").forEach(tr =>
+    tr.onclick = () => run(async () => {
+      state.snapshotId = Number(tr.dataset.id);
+      await Promise.all([loadTimeline(), loadDetail()]);
+    }));
+}
+
+/* ------------------------------ detail ------------------------------- */
+async function loadDetail() {
+  if (!state.snapshotId) return;
+  const s = await api(`/api/snapshots/${state.snapshotId}`);
+  const runs = await api(`/api/snapshots/${s.id}/runs`);
+  $("detailContent").innerHTML = `
+    <dl class="kv">
+      <dt>快照</dt><dd>#${s.seq}（id ${s.id}）</dd>
+      <dt>SHA-256</dt><dd class="mono">${esc(s.content_hash)}</dd>
+      <dt>大小</dt><dd class="mono">${s.raw_size} B → ${s.compressed_size} B（${esc(s.codec)}）</dd>
+      <dt>解析器</dt><dd>${esc(s.parser_version)}</dd>
+      <dt>状态</dt><dd>${badge(s.status)}</dd>
+      <dt>时间</dt><dd class="mono">${esc(s.created_at)}</dd>
+    </dl>
+    <div class="row">
+      <button id="btnPayload">查看原文</button>
+      <label class="hint">重解析为
+        <select id="reparseVersion">${state.parsers.versions.map(v =>
+          `<option ${v === s.parser_version ? "" : "selected"}>${v}</option>`).join("")}
+        </select></label>
+      <button class="primary" id="btnReparse">重新解析并比较</button>
+    </div>
+    <div id="payloadView"></div>
+    <div id="diffResult"></div>
+    <h2 style="margin-top:12px">重解析记录</h2>
+    <div id="runsWrap">${runs.length ? `<table><thead><tr>
+      <th>时间</th><th>任务</th><th>解析器</th><th>状态</th><th>差异数</th></tr></thead><tbody>
+      ${runs.map(r => `<tr>
+        <td class="mono">${esc(r.created_at.slice(5, 19).replace("T", " "))}</td>
+        <td class="mono">${r.job_id ?? "手动"}</td>
+        <td>${esc(r.parser_version)}</td>
+        <td>${badge(r.status)}</td>
+        <td>${r.diff ? r.diff.length : "—"}</td>
+      </tr>`).join("")}</tbody></table>` : '<div class="empty">尚无重解析记录</div>'}</div>`;
+  $("btnPayload").onclick = () => run(async () => {
+    const r = await api(`/api/snapshots/${s.id}/payload`);
+    $("payloadView").innerHTML = `<pre>${esc(r.payload)}</pre>`;
+  });
+  $("btnReparse").onclick = () => run(async () => {
+    const r = await post(`/api/snapshots/${s.id}/reparse`,
+      { parser_version: $("reparseVersion").value });
+    renderDiff(r);
+    await loadDetail();
+    renderDiff(r);
+  });
+  await loadRefs();
+}
+
+function renderDiff(r) {
+  const el = $("diffResult");
+  if (r.status !== "ok") {
+    el.innerHTML = `<div class="row">重解析结果：${badge(r.status)}</div>`;
+    return;
+  }
+  const rows = (r.diff || []).map(d => `<tr>
+    <td class="mono">${esc(d.field)}</td><td>${badge(d.change)}</td>
+    <td>${fmtVal(d.old)}</td><td>${fmtVal(d.new)}</td></tr>`).join("");
+  el.innerHTML = `
+    <div class="row"><span class="hint">以 ${esc(r.parser_version)} 重解析：</span>
+      ${r.diff && r.diff.length ? `${r.diff.length} 个字段差异` : badge("无差异", "ok")}</div>
+    ${rows ? `<table><thead><tr><th>字段</th><th>变化</th><th>原解析值</th><th>重解析值</th>
+      </tr></thead><tbody>${rows}</tbody></table>` : ""}
+    <details><summary class="hint">重解析完整结果</summary>
+      <pre>${esc(JSON.stringify(r.result, null, 2))}</pre></details>`;
+}
+
+/* -------------------------------- refs ------------------------------- */
+async function loadRefs() {
+  if (!state.snapshotId) return;
+  const refs = await api(`/api/snapshots/${state.snapshotId}/refs`);
+  $("refForm").style.display = "flex";
+  $("refsWrap").innerHTML = refs.length ? `<table><thead><tr>
+    <th>类型</th><th>标识</th><th>备注</th><th>状态</th><th></th></tr></thead><tbody>
+    ${refs.map(r => `<tr>
+      <td>${badge(r.ref_type)}</td>
+      <td class="mono">${esc(r.ref_key)}</td>
+      <td class="muted">${esc(r.note || "")}</td>
+      <td>${r.active ? badge("生效中", "ok") : badge("已释放", "pending")}</td>
+      <td>${r.active ? `<button data-ref="${r.id}" class="btnRelease">释放</button>` : ""}</td>
+    </tr>`).join("")}</tbody></table>`
+    : '<div class="empty">该快照暂无引用；被引用的快照不会被保留策略清理</div>';
+  $("refsWrap").querySelectorAll(".btnRelease").forEach(b =>
+    b.onclick = () => run(async () => {
+      await del(`/api/refs/${b.dataset.ref}`);
+      toast("引用已释放");
+      await Promise.all([loadRefs(), loadTimeline()]);
+    }));
+}
+
+$("btnAddRef").onclick = () => run(async () => {
+  await post(`/api/snapshots/${state.snapshotId}/refs`, {
+    ref_type: $("refType").value, ref_key: $("refKey").value, note: $("refNote").value || null,
+  });
+  $("refKey").value = ""; $("refNote").value = "";
+  toast("引用已添加");
+  await Promise.all([loadRefs(), loadTimeline()]);
+});
+
+/* ----------------------------- retention ----------------------------- */
+$("btnSaveRetention").onclick = () => run(async () => {
+  await put(`/api/sources/${state.sourceId}/retention`, {
+    max_snapshots: Number($("retMax").value),
+    strategy: $("retStrategy").value,
+    protect_corrupt: $("retProtect").checked,
+  });
+  toast("保留策略已保存");
+  await refreshSource();
+});
+
+async function previewCleanup() {
+  const plan = await api(`/api/sources/${state.sourceId}/cleanup-candidates`);
+  const cands = plan.candidates.map(c => `<tr>
+    <td class="mono">#${c.seq}</td><td class="mono">${esc(c.content_hash_short)}</td>
+    <td>${badge(c.status)}</td><td class="mono">${c.compressed_size}B</td>
+    <td class="muted">${esc(c.reason)}</td></tr>`).join("");
+  const prots = plan.protected.map(p => `<tr>
+    <td class="mono">#${p.seq}</td><td class="mono">${esc(p.content_hash_short)}</td>
+    <td>${badge(p.status)}</td><td>${p.reasons.map(r => badge(r, r.startsWith("audit") ? "audit" : r.startsWith("replay") ? "replay" : "corrupt")).join(" ")}</td></tr>`).join("");
+  $("cleanupResult").innerHTML = `
+    <div class="row hint">共 ${plan.total} 条 / 上限 ${plan.retention_max} → 超量 ${plan.excess} 条；
+      可清理 ${plan.candidates.length} 条
+      ${plan.blocked ? `；<span class="badge b-corrupt">${plan.blocked} 条因引用受阻无法清理</span>` : ""}</div>
+    ${cands ? `<h2>清理候选</h2><table><thead><tr>
+      <th>seq</th><th>哈希</th><th>状态</th><th>体积</th><th>策略</th></tr></thead>
+      <tbody>${cands}</tbody></table>` : '<div class="empty">无清理候选</div>'}
+    ${prots ? `<h2>受保护（引用 / 策略）</h2><table><thead><tr>
+      <th>seq</th><th>哈希</th><th>状态</th><th>保护原因</th></tr></thead>
+      <tbody>${prots}</tbody></table>` : ""}`;
+  return plan;
+}
+
+$("btnPreviewCleanup").onclick = () => run(previewCleanup);
+$("btnApplyCleanup").onclick = () => run(async () => {
+  const plan = await previewCleanup();
+  if (!plan.candidates.length) return toast("没有可清理的快照", false);
+  if (!confirm(`确认删除 ${plan.candidates.length} 个快照？被引用版本不会被删除。`)) return;
+  const r = await post(`/api/sources/${state.sourceId}/cleanup`);
+  toast(`已删除 ${r.deleted.length} 个快照${r.blocked ? `，${r.blocked} 条因引用受阻` : ""}`);
+  state.snapshotId = null;
+  $("detailContent").innerHTML = '<div class="empty">点击左侧时间线中的快照</div>';
+  await Promise.all([refreshSource(), loadSources(), previewCleanup()]);
+});
+
+/* -------------------------------- jobs ------------------------------- */
+$("btnCreateJob").onclick = () => run(async () => {
+  const body = {
+    parser_version: $("jobVersion").value,
+    batch_size: Number($("jobBatch").value) || 50,
+  };
+  if ($("jobInterrupt").value) body.simulate_interrupt_after = Number($("jobInterrupt").value);
+  const job = await post(`/api/sources/${state.sourceId}/reparse-jobs`, body);
+  toast(`任务 #${job.id}：${job.status}（${job.processed}/${job.total}）`, job.status !== "failed");
+  await loadJobs();
+});
+
+async function loadJobs() {
+  const jobs = await api(`/api/sources/${state.sourceId}/reparse-jobs`);
+  $("jobsWrap").innerHTML = jobs.length ? `<table><thead><tr>
+    <th>id</th><th>解析器</th><th>状态</th><th>进度</th><th>断点</th><th>错误</th><th></th>
+    </tr></thead><tbody>${jobs.map(j => `<tr>
+      <td class="mono">#${j.id}</td><td>${esc(j.parser_version)}</td>
+      <td>${badge(j.status)}</td>
+      <td class="mono">${j.processed}/${j.total}</td>
+      <td class="mono" title="checkpoint 快照 id">${j.checkpoint_id || "—"}</td>
+      <td class="mono">${j.errors || ""}</td>
+      <td>${["interrupted", "failed", "pending", "running"].includes(j.status)
+        ? `<button data-job="${j.id}" class="btnResume">从断点续跑</button>` : ""}</td>
+    </tr>`).join("")}</tbody></table>` : '<div class="empty">暂无任务</div>';
+  $("jobsWrap").querySelectorAll(".btnResume").forEach(b =>
+    b.onclick = () => run(async () => {
+      const job = await post(`/api/reparse-jobs/${b.dataset.job}/resume`);
+      toast(`任务 #${job.id}：${job.status}（${job.processed}/${job.total}）`);
+      await loadJobs();
+    }));
+}
+
+/* ------------------------------- parser ------------------------------ */
+$("btnUpgrade").onclick = () => run(async () => {
+  await post(`/api/sources/${state.sourceId}/parser/upgrade`,
+    { to_version: $("parserTarget").value, reason: $("parserReason").value || null });
+  toast("解析器已升级");
+  await refreshSource();
+});
+$("btnRollback").onclick = () => run(async () => {
+  await post(`/api/sources/${state.sourceId}/parser/rollback`,
+    { to_version: $("parserTarget").value, reason: $("parserReason").value || null });
+  toast("解析器已回滚");
+  await refreshSource();
+});
+
+async function loadHistory() {
+  const rows = await api(`/api/sources/${state.sourceId}/parser/history`);
+  $("historyWrap").innerHTML = rows.length ? `<table><thead><tr>
+    <th>时间</th><th>类型</th><th>从</th><th>到</th><th>原因</th></tr></thead><tbody>
+    ${rows.map(h => `<tr>
+      <td class="mono">${esc(h.created_at.slice(5, 19).replace("T", " "))}</td>
+      <td>${badge(h.kind, h.kind === "rollback" ? "interrupted" : h.kind === "upgrade" ? "running" : "pending")}</td>
+      <td>${esc(h.from_version || "—")}</td><td>${esc(h.to_version)}</td>
+      <td class="muted">${esc(h.reason || "")}</td></tr>`).join("")}</tbody></table>` : "";
+}
+
+/* ------------------------------- events ------------------------------ */
+$("sourceSelect").onchange = () => run(async () => {
+  state.sourceId = Number($("sourceSelect").value) || null;
+  state.snapshotId = null;
+  $("detailContent").innerHTML = '<div class="empty">点击左侧时间线中的快照</div>';
+  $("refsWrap").innerHTML = '<div class="empty">选择快照后展示引用</div>';
+  $("refForm").style.display = "none";
+  await refreshSource();
+});
+$("btnCreateSource").onclick = () => run(async () => {
+  const name = $("newSourceName").value.trim();
+  if (!name) return toast("请输入来源名称", false);
+  const src = await post("/api/sources", { name, parser_version: $("newSourceParser").value });
+  $("newSourceName").value = "";
+  state.sourceId = src.id;
+  state.snapshotId = null;
+  await loadSources();
+  toast(`来源 #${src.id} 已创建`);
+});
+
+loadSources().catch(e => toast(e.message, false));
+</script>
+</body>
+</html>
